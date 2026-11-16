@@ -105,7 +105,7 @@ class WeightedQEMSimplifier:
                 'meshing_decimation_quadric_edge_collapse',
                 targetfacenum=target_faces,
                 preserveboundary=True,
-                boundaryweight=1000.0
+                boundaryweight=10.0
             )
 
         return self._export_trimesh(ms)
