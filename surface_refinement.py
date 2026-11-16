@@ -1,4 +1,3 @@
-"""Normal-direction fitting of a decimated surface to the original scan."""
 import numpy as np
 import open3d as o3d
 from scipy.sparse import coo_matrix
@@ -10,7 +9,7 @@ _FACE_QUADRATURE = np.array([[2 / 3, 1 / 6, 1 / 6],
 
 
 def _angles(triangles):
-    # Stabilized angle deficit from the incident triangle angles.
+
     edges = np.roll(triangles, -1, axis=1) - triangles
     edges /= np.linalg.norm(edges, axis=2)[:, :, None] + 1e-8
     cosine = -(edges * np.roll(edges, 1, axis=1)).sum(axis=2)
@@ -38,7 +37,7 @@ def _quadrature(mesh, dense=False):
 
 
 def _normal_step(original, mesh, symmetric=False, dense=False):
-    """Area quadrature of the source surface, with no evaluation ROI or RNG."""
+
     centers, areas = _quadrature(original, dense)
     hit = _closest_surface(mesh, centers)
     ids = hit['primitive_ids'].numpy()
@@ -53,7 +52,7 @@ def _normal_step(original, mesh, symmetric=False, dense=False):
     rhs = np.bincount(faces.ravel(), (weight * basis * residual[:, None]).ravel(), minlength=n)
     mass = np.bincount(faces.ravel(), (weight * basis**2).ravel(), minlength=n)
     if symmetric:
-        # Iteratively reweight the two area integrals toward absolute distance.
+
         floor = max(np.median(mesh.edges_unique_length) * 0.01, 1e-12)
         weight /= np.sqrt(residual[:, None]**2 + floor**2) * original.area
         rhs = np.bincount(faces.ravel(), (weight * basis * residual[:, None]).ravel(), minlength=n)
@@ -80,7 +79,7 @@ def _normal_step(original, mesh, symmetric=False, dense=False):
 
 
 def _covered_moves(source, proposed, back, owner, dist, roi, hd_limit, roi_limit):
-    """Keep the existing nearest vertex as a witness for each source distance bound."""
+
     after = np.linalg.norm(source - proposed[owner], axis=1)
     allowed = back <= hd_limit
     allowed[owner[after > hd_limit]] = False
@@ -90,7 +89,7 @@ def _covered_moves(source, proposed, back, owner, dist, roi, hd_limit, roi_limit
 
 
 def refine_surface(original, simplified, guide_vertices, saliency, passes=12):
-    """Prioritize large fitting residuals at salient vertices within the legacy bounds."""
+
     mesh = simplified.copy()
     source = original.vertices
     tree = cKDTree(source)
@@ -119,8 +118,7 @@ def refine_surface(original, simplified, guide_vertices, saliency, passes=12):
         allowed = _covered_moves(source, proposed, new_back, owner, dist, roi, hd, dist[roi].max())
         allowed[fixed] = False
 
-        # Each row describes changing just one vertex. Sum the angle change
-        # across incident faces before evaluating each affected angle deficit.
+
         tri = verts[faces]
         old_angles = _angles(tri)
         rows, cols, values = [], [], []
@@ -141,7 +139,7 @@ def refine_surface(original, simplified, guide_vertices, saliency, passes=12):
         updated[diag] += target_curv[nearest[moved_ids]] - target_curv[new_nearest[moved_ids]]
         cost = np.bincount(changes.row, abs(updated) - abs(error[changes.col]), minlength=n)
         allowed &= (cost <= 0) & (np.linalg.norm(delta, axis=1) > 0)
-        # Disjoint rings make the curvature changes additive.
+
         used = np.zeros(n, dtype=bool)
         selected = []
         for i in np.argsort(-priority * np.linalg.norm(delta, axis=1), kind='stable'):
@@ -152,15 +150,15 @@ def refine_surface(original, simplified, guide_vertices, saliency, passes=12):
         if not selected:
             break
         mesh.vertices[selected] = proposed[selected]
-    # The disjoint updates can leave curvature headroom. Take a coupled normal
-    # step if its actual surface residual decreases within the original bounds.
+
+
     initial_dist = cKDTree(simplified.vertices).query(source)[0]
     initial_back, initial_nearest = tree.query(simplified.vertices)
     hd_limit = max(initial_dist.max(), initial_back.max())
     roi_limit = initial_dist[roi].max()
     curvature_limit = np.abs(_deficit(simplified) - target_curv[initial_nearest]).mean()
-    # First reproduce the centroid fit, then refine its surface integral with
-    # three interior quadrature points per face. Evaluation samples stay independent.
+
+
     for dense in (False, True):
         centers, areas = _quadrature(original, dense)
 

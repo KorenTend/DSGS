@@ -1,19 +1,19 @@
 {
-  "generated_utc": "2026-11-16T10:26:32.335856+00:00",
+  "generated_utc": "2026-11-16T10:41:45.729763+00:00",
   "sha256": {
     "readme.md": "9906f6725cf9d25c78a54ca1d35f3858cc59ce42be8c78ac15b851aa49329438",
     "LICENSE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
     "NOTICE": "50ec1bfdb40df60cc00779640dced7cbaed5b20b3c487a8b635c7d0b514279ff",
     "CITATION.cff": "11b71cd8f2c51c9f818fb3e2dd84be52036e57d7a0ea7db59e653aa1c6add823",
-    "requirements.txt": "7518d02a9cb417c2e44022116bdfb21d2b9765023d9b67250119efaa2c2b0e15",
-    "main.py": "1da0d5b164b97aabdc1761acda0306cc40b69d24a0ba7543338a51dd24dd8c24",
-    "model.py": "7931b4618a43c17a5062a3787ca4ac5285c4a512defebe639587e2fdc35d7d64",
-    "loss.py": "e762e2979df54ead2967757335c9ad8eb860b00b9091fa7ecbed1719cc0ae777",
-    "config.py": "ca27d0bf70017a48620200623c6082756226185beeb234f4760b7d6d2c24699d",
-    "utils_geo.py": "66f485d6ceabbc513cdf14b3be71d07839cb068da5c28dacc487bd6ee7762ecb",
-    "runtime.py": "2a5091ce50b698068e3812768d35e00d8589b48e989f4da5138996e69bef5b77",
-    "simplify.py": "446b8496e676c02de6876cd5258a81ebac71344cd40bfd6193a33f3dd780cddd",
-    "surface_refinement.py": "ccdbcee14203189cde2d758afd059edc3046797001374c94db64cce163d9e0c1",
+    "requirements.txt": "936a10a52f3f44f68100b2eddafe552c52d248ba58916838d1dd922b644fde76",
+    "main.py": "5b3956b013b8837ed4ee3bb0792d3d31f1cff3aa0ac9ae02418940d97d7c1e6b",
+    "model.py": "f10c7a6dbcb9db4184f69a5ebdf75cce3bb37b67ba7dc3351e90a7397ca0778b",
+    "loss.py": "24c1e77c2d91848ea696f77d5050c8f89b04281754071161b0726ea3831c6324",
+    "config.py": "317445951c41c66dd546df1e06e4bfdab3ca5ba93344a13a0ece9e8b3716621a",
+    "utils_geo.py": "8a408f6d8ed71cf19058ae0fe77a0b5a3b8dc5403e853bde97f98ab0d0c34286",
+    "runtime.py": "1edf7a751114fa3811c25a1e67658d4cc37c91f2d29033ba542d30b9098d102e",
+    "simplify.py": "d65bdf8a3f8e35c62472ab12e21676e2c7dd2ac63f4c19cacdc46cb1d66e6b35",
+    "surface_refinement.py": "dbe6e34b6e6152e047b10dae4ccae5816c6446089a2f25c3b6432048745e23a5",
     ".gitignore": "65befd0863daab2cdb98d440b20bc8aae44305e307dd8c28af10a0db1a08db9c"
   }
 }

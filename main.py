@@ -1,4 +1,3 @@
-"""Train DSGS on a mesh, or simplify with a saved saliency checkpoint."""
 import argparse
 from datetime import datetime, timezone
 import importlib.metadata
@@ -27,7 +26,7 @@ def create_model(device, ablation):
         model.encoder.attention = torch.nn.Identity()
     if ablation == 'no_learn_curv':
         with torch.no_grad():
-            model.encoder.blend_alpha.fill_(0.8473)  # sigmoid ~= 0.7
+            model.encoder.blend_alpha.fill_(0.8473)
         model.encoder.blend_alpha.requires_grad_(False)
     return model
 
@@ -48,17 +47,17 @@ def train(model, patches, cfg, device, ablation):
     for epoch in range(cfg.EPOCHS):
         total_loss = 0
         for patch in patches:
-            # 准备数据
+
             pts = torch.from_numpy(patch['points_norm']).float().to(device)
             nms = torch.from_numpy(patch['normals']).float().to(device)
             curv = torch.from_numpy(patch['curvature']).float().to(device).unsqueeze(1)
             height = torch.from_numpy(patch['height']).float().to(device).unsqueeze(1)
 
-            # [修改] 拼接 8 维输入: [pts(3), nms(3), curv(1), height(1)]
+
             x = torch.cat([pts, nms, curv, height], dim=1).unsqueeze(0)
             curv_input = curv.unsqueeze(0)
 
-            # 旋转增强 (Siamese)
+
             theta = np.random.uniform(0, 2*np.pi)
             rot_mat = torch.tensor([[np.cos(theta), -np.sin(theta), 0],
                                     [np.sin(theta), np.cos(theta), 0],
@@ -70,26 +69,25 @@ def train(model, patches, cfg, device, ablation):
             optimizer.zero_grad()
             weights, recon_pts, weights_rot = model(x, curv_input, x_rot, ablate=ablation)
 
-            # === Loss 计算 ===
-            # 1. 几何变形损失 (消融 A: 去掉几何引导)
+
             if ablation == 'no_virtual_loss':
                 loss_geom = torch.tensor(0.0, device=device)
             else:
                 loss_geom = virtual_decimation_loss(pts.unsqueeze(0), weights, curv.unsqueeze(0))
 
-            # 2. [增强] 稀疏惩罚
+
             loss_sparse = sparsity_loss(weights)
 
-            # 3. 视点一致性
+
             loss_view = view_consistency_loss(weights, weights_rot)
 
-            # 4. 辅助重建 (Charbonnier 版本，更鲁棒)
+
             loss_recon = chamfer_distance_charbonnier(x[:, :, :3], recon_pts)
 
-            # 5. 边缘保持正则化
+
             loss_edge = edge_preserving_loss(weights, curv_input)
 
-            # [调整] 平衡 loss 配比
+
             loss = 1.0 * loss_geom + 2.0 * loss_sparse + 0.5 * loss_view + 1.0 * loss_recon + 0.5 * loss_edge
 
             loss.backward()
@@ -101,7 +99,6 @@ def train(model, patches, cfg, device, ablation):
         if (epoch+1) % 10 == 0 or epoch + 1 == cfg.EPOCHS:
             current_lr = scheduler.get_last_lr()[0]
             print(f"Epoch {epoch+1}/{cfg.EPOCHS}, Avg Loss: {total_loss/len(patches):.4f}, LR: {current_lr:.6f}")
-
 
 
 def infer_weights(model, mesh, cfg, device, ablation):
@@ -121,7 +118,7 @@ def infer_weights(model, mesh, cfg, device, ablation):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Train DSGS on a mesh, or simplify with a saved saliency checkpoint.')
     parser.add_argument('--input', '-i', type=Path, default=Path('data/Origin-10.stl'))
     parser.add_argument('--output', '-o', type=Path, default=Path('output/DSGS.obj'))
     parser.add_argument('--ratio', '--target-ratio', '-r', type=retention_ratio,
@@ -193,7 +190,7 @@ def main(argv=None):
                     'ablation': args.ablate, 'config': config,
                     'training_input_sha256': sha256_file(args.input)}, checkpoint_path)
 
-    # Fix the inference RNG independently so checkpoint replay uses identical patches.
+
     setup_seed(cfg.SEED)
     if device.type == 'cuda':
         torch.cuda.synchronize()

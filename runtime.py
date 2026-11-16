@@ -1,4 +1,3 @@
-"""Validation, seeds and mesh loading shared by public entry points."""
 import argparse
 import hashlib
 import random

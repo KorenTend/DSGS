@@ -100,6 +100,15 @@ vertex-quality weighting. Record the actual face count and configuration when
 reporting results. Fixed seeds support repeated runs; numerical results may
 still vary with hardware and dependency versions.
 
+## Citation
+
+If you use this code in research, please cite:
+
+> Ke Li, Yutong Hu, Haisheng Li, and Li Chen.
+> DSGS: Dental Mesh Saliency-Guided Simplification with Geometric Feature Preservation.
+
+Author metadata is also available in [CITATION.cff](CITATION.cff).
+
 ## License
 
 The source code is licensed under [Apache License 2.0](LICENSE).

@@ -1,4 +1,3 @@
-# Python 3.10. Install the appropriate CPU/CUDA PyTorch build first.
 torch==2.5.1
 numpy==2.2.6
 scipy==1.15.2
