@@ -126,8 +126,7 @@ For `--output output/DSGS_50.obj`, the run produces:
 
 <details>
 <summary><strong>Geometry and repeatability notes</strong></summary>
-Saliency is used by surface fitting. The current decimation call does not use
-vertex-quality weighting. Record the actual face count and configuration when
+The fused vertex saliency weights modulate QEM edge-collapse costs through a protection factor determined by the target face-retention ratio. Valid edge collapses are ranked by the weighted cost and applied iteratively until the target face budget is reached. Record the actual face count and configuration when
 reporting results. Fixed seeds support repeated runs; numerical results may
 still vary with hardware and dependency versions.
 
