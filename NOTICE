@@ -1,0 +1,6 @@
+DSGS: Dental Mesh Saliency-Guided Simplification with Geometric Feature Preservation
+Copyright 2026 Ke Li, Yutong Hu, Haisheng Li, Li Chen
+
+This source code is licensed under the Apache License, Version 2.0.
+Third-party dependencies retain their own licenses. Dental datasets and locally
+generated experimental artifacts are not included in the source release.
