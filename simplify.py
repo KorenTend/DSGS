@@ -20,6 +20,36 @@ class WeightedQEMSimplifier:
         print(f"  - Ratio: {ratio:.1%} ({target_faces}/{original_faces})")
 
 
+        if ratio <= 0.08:
+            feature_multiplier = 3.0 if ratio <= 0.03 else 2.5
+            boundary_weight = 1000.0
+            clip_min = 0.2
+            quality_thr = 0.3
+            print(f"    [Strategy] LOW Ratio ({ratio:.2f}) -> Moderate Feature Protection")
+
+        elif ratio <= 0.2:
+            feature_multiplier = 2.0
+            boundary_weight = 1000.0
+            clip_min = 0.2
+            quality_thr = 0.3
+            print(f"    [Strategy] LOW-MID Ratio ({ratio:.2f}) -> Balanced Protection")
+
+        elif ratio <= 0.3:
+            feature_multiplier = 1.5
+            boundary_weight = 1000.0
+            clip_min = 0.3
+            quality_thr = 0.4
+            print(f"    [Strategy] MID Ratio ({ratio:.2f}) -> Smoothness & Uniformity First")
+
+
+        else:
+            feature_multiplier = 1.5
+            boundary_weight = 1000.0
+            clip_min = 0.2
+            quality_thr = 0.5
+            print(f"    [Strategy] HIGH Ratio ({ratio:.2f}) -> Guided QEM + Quality Lock")
+
+
         edges = self.mesh.edges_sorted
         groups = grouping.group_rows(edges, require_count=1)
         boundary_indices = np.unique(edges[groups].flatten())
@@ -105,7 +135,7 @@ class WeightedQEMSimplifier:
                 'meshing_decimation_quadric_edge_collapse',
                 targetfacenum=target_faces,
                 preserveboundary=True,
-                boundaryweight=10.0
+                boundaryweight=1000.0
             )
 
         return self._export_trimesh(ms)

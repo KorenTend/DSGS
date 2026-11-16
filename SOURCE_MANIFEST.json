@@ -1,11 +1,12 @@
 {
-  "generated_utc": "2026-11-16T10:41:45.729763+00:00",
+  "generated_utc": "2026-11-16T10:48:15.946871+00:00",
   "sha256": {
-    "readme.md": "9906f6725cf9d25c78a54ca1d35f3858cc59ce42be8c78ac15b851aa49329438",
+    "readme.md": "3f1659eebacae6cc114bfa24a8093b9f7e2e4deb5fddd688c8fc0b9ab05f8b76",
     "LICENSE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
     "NOTICE": "50ec1bfdb40df60cc00779640dced7cbaed5b20b3c487a8b635c7d0b514279ff",
     "CITATION.cff": "11b71cd8f2c51c9f818fb3e2dd84be52036e57d7a0ea7db59e653aa1c6add823",
     "requirements.txt": "936a10a52f3f44f68100b2eddafe552c52d248ba58916838d1dd922b644fde76",
+    "assets/readme-hero.svg": "b8f5d03e107db194541d2c675a122afcacd231252dde616a0955a2ece354e401",
     "main.py": "5b3956b013b8837ed4ee3bb0792d3d31f1cff3aa0ac9ae02418940d97d7c1e6b",
     "model.py": "f10c7a6dbcb9db4184f69a5ebdf75cce3bb37b67ba7dc3351e90a7397ca0778b",
     "loss.py": "24c1e77c2d91848ea696f77d5050c8f89b04281754071161b0726ea3831c6324",
