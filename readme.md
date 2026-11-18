@@ -2,7 +2,7 @@
 
 <img src="assets/readme-hero.svg" alt="DSGS — Dental Mesh Simplification" width="100%" />
 
-<h2>Dental Mesh Saliency-Guided Simplification<br />with Geometric Feature Preservation</h2>
+<h2>DSGS: Dental Mesh Saliency-Guided Simplification<br />with Geometric Feature Preservation</h2>
 
 **Ke Li · Yutong Hu · Haisheng Li · Li Chen**
 
