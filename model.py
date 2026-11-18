@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -217,29 +219,121 @@ class DGCNN_SaliencyEncoder(nn.Module):
 
         return saliency_final, global_feat
 
-class FoldingNetDecoder(nn.Module):
-    def __init__(self, input_dim=512):
-        super(FoldingNetDecoder, self).__init__()
+
+@torch.no_grad()
+def edge_neighbors(features, k, chunk_size=512):
+    """Find nearest other vertices in each patch's current feature space."""
+    batch_size, num_points, _ = features.shape
+    k = min(k, num_points - 1)
+    neighbors = torch.empty(batch_size, num_points, k, dtype=torch.long, device=features.device)
+    squares = features.square().sum(dim=-1)
+    transposed = features.transpose(1, 2)
+    for start in range(0, num_points, chunk_size):
+        end = min(start + chunk_size, num_points)
+        query = features[:, start:end]
+        scores = torch.bmm(query, transposed)
+        scores.mul_(2).sub_(squares[:, start:end, None]).sub_(squares[:, None])
+        rows = torch.arange(end - start, device=features.device)
+        scores[:, rows, start + rows] = -torch.inf
+        neighbors[:, start:end] = scores.topk(k, dim=-1, sorted=False).indices
+    return neighbors
+
+
+class PaperEdgeConv(nn.Module):
+    """Dynamic graph convolution with center and relative features (Eqs. 5–6)."""
+
+    def __init__(self, in_channels, out_channels, k=20):
+        super().__init__()
+        self.k = k
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim + 2, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 3)
+            nn.Conv2d(2 * in_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(negative_slope=0.2),
         )
 
+    def forward(self, features):
+        indices = edge_neighbors(features, self.k)
+        patches = torch.arange(features.shape[0], device=features.device)[:, None, None]
+        adjacent = features[patches, indices]
+        centers = features.unsqueeze(2)
+        edges = torch.cat((centers.expand_as(adjacent), adjacent - centers), dim=-1)
+        return self.mlp(edges.permute(0, 3, 1, 2)).max(dim=-1).values.transpose(1, 2)
+
+
+class VertexAttention(nn.Module):
+    """A shared MLP applies one learned scalar gate per vertex (Eqs. 7–8)."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate = nn.Sequential(nn.Linear(512, 64), nn.ReLU(), nn.Linear(64, 1), nn.Sigmoid())
+
+    def forward(self, features):
+        return features * self.gate(features)
+
+
+class PaperSaliencyEncoder(nn.Module):
+    def __init__(self, use_curvature=True):
+        super().__init__()
+        self.use_curvature = use_curvature
+        self.edge_convs = nn.ModuleList([
+            PaperEdgeConv(8 if use_curvature else 7, 64),
+            PaperEdgeConv(64, 64),
+            PaperEdgeConv(64, 128),
+            PaperEdgeConv(128, 256),
+        ])
+        self.attention = VertexAttention()
+        self.saliency_head = nn.Sequential(
+            nn.Linear(512, 256), nn.LeakyReLU(0.2), nn.Dropout(0.5),
+            nn.Linear(256, 128), nn.LeakyReLU(0.2), nn.Dropout(0.5),
+            nn.Linear(128, 1), nn.Sigmoid(),
+        )
+        self.blend_alpha = nn.Parameter(torch.tensor(2.0))
+
+    def forward(self, features, curvature, ablate=None):
+        if not self.use_curvature:
+            # The ablation removes the input channel while retaining Eq. (10)'s prior.
+            features = torch.cat((features[..., :6], features[..., 7:]), dim=-1)
+        layers = []
+        for edge_conv in self.edge_convs:
+            features = edge_conv(features)
+            layers.append(features)
+        attended = self.attention(torch.cat(layers, dim=-1))
+        saliency = self.saliency_head(attended)
+        blend = self.blend_alpha.sigmoid()
+        return blend * saliency + (1 - blend) * curvature, attended.max(dim=1).values
+
+
+class FoldingNetDecoder(nn.Module):
+    def __init__(self, input_dim=512, paper=False):
+        super(FoldingNetDecoder, self).__init__()
+        self.paper = paper
+        layers = [nn.Linear(input_dim + 2, 512), nn.ReLU()]
+        if paper:
+            layers.append(nn.Dropout(0.5))
+        layers.extend((nn.Linear(512, 512), nn.ReLU()))
+        if paper:
+            layers.append(nn.Dropout(0.5))
+        self.mlp = nn.Sequential(*layers, nn.Linear(512, 3))
+
     def forward(self, feature, num_points=2048):
-        B = feature.shape[0]
-        grid = torch.rand(B, num_points, 2).to(feature.device)
-        feature_expand = feature.unsqueeze(1).repeat(1, num_points, 1)
+        batch_size = feature.shape[0]
+        if self.paper:
+            width = math.ceil(math.sqrt(num_points))
+            height = math.ceil(num_points / width)
+            horizontal = torch.linspace(-1, 1, width, device=feature.device, dtype=feature.dtype)
+            vertical = torch.linspace(-1, 1, height, device=feature.device, dtype=feature.dtype)
+            grid = torch.cartesian_prod(vertical, horizontal)[:num_points].expand(batch_size, -1, -1)
+        else:
+            grid = torch.rand(batch_size, num_points, 2).to(feature.device)
+        feature_expand = feature.unsqueeze(1).expand(-1, num_points, -1)
         cat_input = torch.cat([feature_expand, grid], dim=-1)
         return self.mlp(cat_input)
 
 class DentalSaliencyNet(nn.Module):
-    def __init__(self):
+    def __init__(self, paper=False, use_curvature=True):
         super(DentalSaliencyNet, self).__init__()
-        self.encoder = DGCNN_SaliencyEncoder()
-        self.decoder = FoldingNetDecoder(input_dim=512)
+        self.encoder = PaperSaliencyEncoder(use_curvature) if paper else DGCNN_SaliencyEncoder()
+        self.decoder = FoldingNetDecoder(input_dim=512, paper=paper)
 
     def forward(self, x, curvature, x_rot=None, ablate=None):
         weights, global_feat = self.encoder(x, curvature, ablate=ablate)

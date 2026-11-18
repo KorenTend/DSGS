@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime, timezone
 import importlib.metadata
 import json
+import math
 from pathlib import Path
 import time
 
@@ -13,30 +14,64 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from config import Config
 from utils_geo import compute_curvature, get_patches, stitch_weights
 from model import DentalSaliencyNet
-from simplify import WeightedQEMSimplifier
+from simplify import PaperQEMSimplifier, WeightedQEMSimplifier, protection_multiplier
 from runtime import (setup_seed, load_mesh, positive_int, retention_ratio,
                      resolve_device, sha256_file)
 from loss import (virtual_decimation_loss, view_consistency_loss, sparsity_loss,
                   edge_preserving_loss, chamfer_distance_charbonnier)
 
 
-def create_model(device, ablation):
-    model = DentalSaliencyNet().to(device)
+def create_model(device, ablation, *, paper=False):
+    model = DentalSaliencyNet(paper=paper, use_curvature=ablation != 'no_learn_curv').to(device)
     if ablation == 'no_gam':
         model.encoder.attention = torch.nn.Identity()
-    if ablation == 'no_learn_curv':
+    if not paper and ablation == 'no_learn_curv':
         with torch.no_grad():
             model.encoder.blend_alpha.fill_(0.8473)
         model.encoder.blend_alpha.requires_grad_(False)
     return model
 
 
-def prepare_patches(mesh, cfg):
-    curvature = compute_curvature(mesh)
-    patches = get_patches(mesh, curvature, cfg)
+def prepare_patches(mesh, cfg, *, paper=False):
+    curvature = compute_curvature(mesh, paper=paper)
+    patches = get_patches(mesh, curvature, cfg, paper=paper)
     if not patches:
-        raise ValueError('No patches contain 100 vertices; use a denser mesh or fewer patches')
+        raise ValueError('Could not build training patches from this mesh')
     return curvature, patches
+
+
+def patch_features(patch):
+    return np.column_stack((patch['points_norm'], patch['normals'],
+                            patch['curvature'], patch['height']))
+
+
+def train_paper(model, patches, cfg, device, ablation):
+    optimizer = optim.Adam(model.parameters(), lr=cfg.LR)
+    scheduler = CosineAnnealingLR(optimizer, T_max=cfg.EPOCHS)
+    model.train()
+    for epoch in range(cfg.EPOCHS):
+        total_loss = 0.0
+        order = np.random.permutation(len(patches))
+        for start in range(0, len(patches), cfg.BATCH_SIZE):
+            indices = order[start:start + cfg.BATCH_SIZE]
+            features = np.stack([patch_features(patches[i]) for i in indices])
+            x = torch.as_tensor(features, dtype=torch.float32, device=device)
+            points, curvature = x[..., :3], x[..., 6:7]
+            optimizer.zero_grad()
+            weights, reconstructed, _ = model(x, curvature, ablate=ablation)
+            loss = 2.0 * sparsity_loss(weights)
+            loss = loss + chamfer_distance_charbonnier(points, reconstructed, paper=True)
+            if ablation != 'no_virtual_loss':
+                loss = loss + virtual_decimation_loss(points, weights, curvature,
+                                                       curv_beta=cfg.BETA, paper=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            total_loss += loss.item() * len(indices)
+        scheduler.step()
+        if (epoch + 1) % 10 == 0 or epoch + 1 == cfg.EPOCHS:
+            lr = scheduler.get_last_lr()[0]
+            print(f'Epoch {epoch + 1}/{cfg.EPOCHS}, Avg Loss: {total_loss / len(patches):.4f}, LR: {lr:.6f}')
 
 
 def train(model, patches, cfg, device, ablation):
@@ -101,20 +136,33 @@ def train(model, patches, cfg, device, ablation):
             print(f"Epoch {epoch+1}/{cfg.EPOCHS}, Avg Loss: {total_loss/len(patches):.4f}, LR: {current_lr:.6f}")
 
 
-def infer_weights(model, mesh, cfg, device, ablation):
-    curvature, patches = prepare_patches(mesh, cfg)
+def infer_weights(model, mesh, cfg, device, ablation, *, paper=False):
+    curvature, patches = prepare_patches(mesh, cfg, paper=paper)
     model.eval()
     patch_weights = []
     with torch.no_grad():
         for patch in patches:
-            features = np.column_stack((patch['points_norm'], patch['normals'],
-                                        patch['curvature'], patch['height']))
+            features = patch_features(patch)
             x = torch.as_tensor(features, dtype=torch.float32, device=device).unsqueeze(0)
-            weights, _, _ = model(x, x[:, :, 6:7], ablate=ablation)
+            if paper:
+                weights, _ = model.encoder(x, x[:, :, 6:7], ablate=ablation)
+            else:
+                weights, _, _ = model(x, x[:, :, 6:7], ablate=ablation)
             patch_weights.append(weights.cpu().numpy())
-    weights = stitch_weights(mesh, patches, patch_weights)
-    weights = (weights - weights.min()) / (np.ptp(weights) + 1e-8)
+    weights = stitch_weights(mesh, patches, patch_weights, paper=paper)
+    if paper:
+        spread = np.ptp(weights)
+        weights = (weights - weights.min()) / spread if spread > 0 else np.zeros_like(weights)
+    else:
+        weights = (weights - weights.min()) / (np.ptp(weights) + 1e-8)
     return weights, curvature
+
+
+def positive_float(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError('must be a finite positive number')
+    return number
 
 
 def build_parser():
@@ -128,6 +176,13 @@ def build_parser():
     parser.add_argument('--seed', type=int, default=Config.SEED)
     parser.add_argument('--patch-points', type=positive_int, default=Config.PATCH_POINTS)
     parser.add_argument('--num-patches', type=positive_int, default=Config.NUM_PATCHES)
+    parser.add_argument('--batch-size', type=positive_int, default=Config.BATCH_SIZE)
+    parser.add_argument('--profile', choices=['paper', 'legacy'],
+                        help='defaults to paper for training, or the saved profile for checkpoint replay')
+    parser.add_argument('--beta', type=positive_float, help='curvature penalty in Eq. (12)')
+    parser.add_argument('--eta', type=positive_float, help='smoothing coefficient in Eq. (16)')
+    parser.add_argument('--r0', type=retention_ratio, help='retention threshold in Eq. (16)')
+    parser.add_argument('--gamma', type=positive_float, help='mild-simplification multiplier in Eq. (16)')
     parser.add_argument('--checkpoint', type=Path, help='skip training and load saved weights')
     parser.add_argument('--no-surface-refinement', action='store_true')
     parser.add_argument('--ablate', default='',
@@ -159,17 +214,45 @@ def main(argv=None):
     cfg = Config()
     cfg.SEED, cfg.EPOCHS = args.seed, args.epochs
     cfg.PATCH_POINTS, cfg.NUM_PATCHES = args.patch_points, args.num_patches
-    setup_seed(cfg.SEED)
+    cfg.BATCH_SIZE, cfg.BETA = args.batch_size, args.beta
     checkpoint = None
+    profile = args.profile or 'paper'
     if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=True)
+        saved_profile = 'legacy'
         if 'model_state_dict' in checkpoint:
+            version = checkpoint.get('format_version', 1)
+            if version not in (1, 2):
+                parser.error(f'unsupported checkpoint format: {version}')
+            saved_profile = checkpoint.get('profile', 'legacy')
+            if saved_profile not in ('paper', 'legacy'):
+                parser.error(f'unsupported checkpoint profile: {saved_profile}')
             if args.ablate and args.ablate != checkpoint['ablation']:
                 parser.error('--ablate does not match the checkpoint variant')
             args.ablate = checkpoint['ablation']
             for key, value in checkpoint['config'].items():
                 setattr(cfg, key, value)
-    model = create_model(device, args.ablate)
+        if args.profile and args.profile != saved_profile:
+            parser.error('--profile does not match the checkpoint profile')
+        profile = saved_profile
+    paper = profile == 'paper'
+    multiplier = None
+    if paper:
+        if cfg.PATCH_POINTS < 21:
+            parser.error('the paper profile requires at least 21 points for 20 non-self neighbors')
+        if checkpoint is None and args.ablate != 'no_virtual_loss' and cfg.BETA is None:
+            parser.error('paper training requires --beta because the manuscript does not specify its value')
+        if any(value is None for value in (args.eta, args.r0, args.gamma)):
+            parser.error('the paper profile requires --eta, --r0 and --gamma from Eq. (16)')
+        try:
+            multiplier = protection_multiplier(args.ratio, eta=args.eta, r0=args.r0, gamma=args.gamma)
+        except ValueError as error:
+            parser.error(str(error))
+        cfg.DROPOUT = 0.5
+    elif any(value is not None for value in (args.beta, args.eta, args.r0, args.gamma)):
+        parser.error('--beta, --eta, --r0 and --gamma apply to the paper profile')
+    setup_seed(cfg.SEED)
+    model = create_model(device, args.ablate, paper=paper)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     training_seconds = 0.0
     config = {key: getattr(cfg, key) for key in dir(cfg) if key.isupper()}
@@ -179,14 +262,15 @@ def main(argv=None):
     else:
         start = time.perf_counter()
         mesh = load_mesh(args.input)
-        _, patches = prepare_patches(mesh, cfg)
-        print(f'Training {args.ablate or "full"} on {device}; {len(patches)} patches', flush=True)
-        train(model, patches, cfg, device, args.ablate)
+        _, patches = prepare_patches(mesh, cfg, paper=paper)
+        print(f'Training {profile}/{args.ablate or "full"} on {device}; {len(patches)} patches', flush=True)
+        train_method = train_paper if paper else train
+        train_method(model, patches, cfg, device, args.ablate)
         if device.type == 'cuda':
             torch.cuda.synchronize()
         training_seconds = time.perf_counter() - start
         checkpoint_path = args.output.with_suffix('.pth')
-        torch.save({'format_version': 1, 'model_state_dict': model.state_dict(),
+        torch.save({'format_version': 2, 'profile': profile, 'model_state_dict': model.state_dict(),
                     'ablation': args.ablate, 'config': config,
                     'training_input_sha256': sha256_file(args.input)}, checkpoint_path)
 
@@ -195,13 +279,17 @@ def main(argv=None):
     if device.type == 'cuda':
         torch.cuda.synchronize()
     start = time.perf_counter()
-    reference = load_mesh(args.input, clean=False) if not args.no_surface_refinement else None
+    reference = load_mesh(args.input, clean=False) if not paper and not args.no_surface_refinement else None
     mesh = load_mesh(args.input)
-    weights, curvature = infer_weights(model, mesh, cfg, device, args.ablate)
+    weights, curvature = infer_weights(model, mesh, cfg, device, args.ablate, paper=paper)
     weights_path = args.output.with_name(args.output.stem + '_weights.npz')
     np.savez(weights_path, weights=weights, curvature=curvature)
-    target = min(len(mesh.faces), max(500, int(len(mesh.faces) * args.ratio)))
-    result = WeightedQEMSimplifier(mesh, weights.copy()).simplify(target)
+    target = min(len(mesh.faces), max(1 if paper else 500, int(len(mesh.faces) * args.ratio)))
+    if paper:
+        simplifier = PaperQEMSimplifier(mesh, weights, eta=args.eta, r0=args.r0, gamma=args.gamma)
+        result = simplifier.simplify(target, ratio=args.ratio)
+    else:
+        result = WeightedQEMSimplifier(mesh, weights).simplify(target)
     if reference is not None:
         from surface_refinement import refine_surface
         result = refine_surface(reference, result, mesh.vertices, weights)
@@ -212,19 +300,24 @@ def main(argv=None):
     if device.type == 'cuda':
         torch.cuda.synchronize()
     pipeline_seconds = time.perf_counter() - start
-    metadata = dict(method='DSGS', ablation=args.ablate or 'full',
+    metadata = dict(method='DSGS', profile=profile, ablation=args.ablate or 'full',
                     timestamp_utc=datetime.now(timezone.utc).isoformat(),
                     input=str(args.input), input_sha256=sha256_file(args.input),
                     output=str(args.output), output_sha256=sha256_file(args.output),
                     checkpoint=str(checkpoint_path), checkpoint_sha256=sha256_file(checkpoint_path),
                     trained_this_run=checkpoint is None, config=config, device=str(device),
-                    surface_refinement=reference is not None, qem_quality_weight=False,
+                    surface_refinement=reference is not None,
+                    qem='adaptive_saliency' if paper else 'pymeshlab',
                     requested_ratio=args.ratio, target_faces=target,
                     original_faces=len(mesh.faces), output_faces=len(result.faces),
                     actual_ratio=len(result.faces) / len(mesh.faces),
                     training_seconds=training_seconds, pipeline_seconds=pipeline_seconds,
                     versions={p: importlib.metadata.version(p) for p in
-                              ['torch', 'numpy', 'scipy', 'trimesh', 'pymeshlab', 'open3d']})
+                              ['torch', 'numpy', 'scipy', 'trimesh', 'pymeshlab', 'open3d', 'scikit-learn']})
+    if paper:
+        metadata['protection'] = dict(eta=args.eta, r0=args.r0, gamma=args.gamma, multiplier=multiplier)
+    else:
+        metadata['qem_quality_weight'] = False
     args.output.with_suffix('.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     print(f'Done. Output saved to: {args.output}')
     print(f'[TIME] Training and preprocessing: {training_seconds:.3f}s')

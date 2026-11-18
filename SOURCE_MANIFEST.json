@@ -1,19 +1,19 @@
 {
-  "generated_utc": "2026-11-16T10:48:15.946871+00:00",
+  "generated_utc": "2026-11-18T05:15:57.981143+00:00",
   "sha256": {
-    "readme.md": "3f1659eebacae6cc114bfa24a8093b9f7e2e4deb5fddd688c8fc0b9ab05f8b76",
+    "readme.md": "a4c07a26c354b2925a641c74e40d758066a7d29f201d7c143616a1d6ed8c3665",
     "LICENSE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
     "NOTICE": "50ec1bfdb40df60cc00779640dced7cbaed5b20b3c487a8b635c7d0b514279ff",
     "CITATION.cff": "11b71cd8f2c51c9f818fb3e2dd84be52036e57d7a0ea7db59e653aa1c6add823",
     "requirements.txt": "936a10a52f3f44f68100b2eddafe552c52d248ba58916838d1dd922b644fde76",
     "assets/readme-hero.svg": "b8f5d03e107db194541d2c675a122afcacd231252dde616a0955a2ece354e401",
-    "main.py": "5b3956b013b8837ed4ee3bb0792d3d31f1cff3aa0ac9ae02418940d97d7c1e6b",
-    "model.py": "f10c7a6dbcb9db4184f69a5ebdf75cce3bb37b67ba7dc3351e90a7397ca0778b",
-    "loss.py": "24c1e77c2d91848ea696f77d5050c8f89b04281754071161b0726ea3831c6324",
+    "main.py": "a82a3b0eb02b1b1c6963bc7cee27825cd9335cd7d4861042e3aa12c8f82134e4",
+    "model.py": "fea5479032edd1d64ef67f9742924de9736c4e37b116c252d0cce558fd835d20",
+    "loss.py": "bf81b7f05f1611d3c3af9bb8c26934953ce7633d14eb4e0eb804e1da46f18610",
     "config.py": "317445951c41c66dd546df1e06e4bfdab3ca5ba93344a13a0ece9e8b3716621a",
-    "utils_geo.py": "8a408f6d8ed71cf19058ae0fe77a0b5a3b8dc5403e853bde97f98ab0d0c34286",
+    "utils_geo.py": "8d7124d65f6a93eaddf815b86b9aa05d5f4a9193e1bc1b4e98d830a7a187076e",
     "runtime.py": "1edf7a751114fa3811c25a1e67658d4cc37c91f2d29033ba542d30b9098d102e",
-    "simplify.py": "d65bdf8a3f8e35c62472ab12e21676e2c7dd2ac63f4c19cacdc46cb1d66e6b35",
+    "simplify.py": "98068cb2c0dbabe8e10c5867f417745134bc8be6c1f5be66a89cf383c3e30f80",
     "surface_refinement.py": "dbe6e34b6e6152e047b10dae4ccae5816c6446089a2f25c3b6432048745e23a5",
     ".gitignore": "65befd0863daab2cdb98d440b20bc8aae44305e307dd8c28af10a0db1a08db9c"
   }

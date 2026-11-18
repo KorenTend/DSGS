@@ -2,7 +2,15 @@ import numpy as np
 import trimesh
 from sklearn.neighbors import KDTree
 
-def compute_curvature(mesh):
+def compute_curvature(mesh, *, paper=False):
+    if paper:
+        # Use the curvature magnitude as described in §3.2 and §4.2.
+        curvature = np.abs(mesh.vertex_defects)
+        lower_bound, upper_bound = np.percentile(curvature, [50, 90])
+        if upper_bound == lower_bound:
+            return np.zeros_like(curvature)
+        normalized = (curvature - lower_bound) / (upper_bound - lower_bound)
+        return np.sqrt(np.clip(normalized, 0.0, 1.0))
 
     vertices = mesh.vertices
     edges = mesh.edges_unique
@@ -43,7 +51,7 @@ def fps_sampling(points, k):
         distances = np.minimum(distances, new_dists)
     return indices
 
-def get_patches(mesh, global_curvature, config):
+def get_patches(mesh, global_curvature, config, *, paper=False):
     vertices = mesh.vertices
     normals = mesh.vertex_normals
 
@@ -51,26 +59,40 @@ def get_patches(mesh, global_curvature, config):
     z_coords = vertices[:, 2]
     z_min, z_max = np.min(z_coords), np.max(z_coords)
 
-    global_height = (z_coords - z_min) / (z_max - z_min + 1e-8)
+    z_range = z_max - z_min
+    if paper:
+        global_height = np.divide(z_coords - z_min, z_range, out=np.zeros_like(z_coords), where=z_range > 0)
+    else:
+        global_height = (z_coords - z_min) / (z_range + 1e-8)
 
 
-    num_guide = min(config.NUM_POINTS_GUIDE, len(vertices))
-    guide_idx = np.random.choice(len(vertices), num_guide, replace=False)
-    guide_points = vertices[guide_idx]
+    if paper:
+        center_count = min(config.NUM_PATCHES, len(vertices))
+        centers = vertices[fps_sampling(vertices, center_count)]
+        tree = KDTree(vertices)
+        neighbor_count = min(config.PATCH_POINTS, len(vertices))
+        indices_list = tree.query(centers, k=neighbor_count, return_distance=False)
+    else:
+        num_guide = min(config.NUM_POINTS_GUIDE, len(vertices))
+        guide_idx = np.random.choice(len(vertices), num_guide, replace=False)
+        guide_points = vertices[guide_idx]
 
-    center_indices_local = fps_sampling(guide_points, config.NUM_PATCHES)
-    centers = guide_points[center_indices_local]
+        center_indices_local = fps_sampling(guide_points, config.NUM_PATCHES)
+        centers = guide_points[center_indices_local]
 
-    bbox_diag = np.linalg.norm(vertices.max(0) - vertices.min(0))
-    radius = (bbox_diag / np.sqrt(config.NUM_PATCHES)) * config.OVERLAP_RATIO
+        bbox_diag = np.linalg.norm(vertices.max(0) - vertices.min(0))
+        radius = (bbox_diag / np.sqrt(config.NUM_PATCHES)) * config.OVERLAP_RATIO
+        tree = KDTree(vertices)
+        indices_list = tree.query_radius(centers, r=radius)
 
-    tree = KDTree(vertices)
     patches = []
-    indices_list = tree.query_radius(centers, r=radius)
 
-    for i, idx in enumerate(indices_list):
-        if len(idx) < 100: continue
-        if len(idx) >= config.PATCH_POINTS:
+    for idx in indices_list:
+        if paper:
+            sample_idx = idx if len(idx) == config.PATCH_POINTS else np.resize(idx, config.PATCH_POINTS)
+        elif len(idx) < 100:
+            continue
+        elif len(idx) >= config.PATCH_POINTS:
             sample_idx = np.random.choice(idx, config.PATCH_POINTS, replace=False)
         else:
             sample_idx = np.random.choice(idx, config.PATCH_POINTS, replace=True)
@@ -98,9 +120,9 @@ def get_patches(mesh, global_curvature, config):
 
     return patches
 
-def stitch_weights(mesh, patches, patch_weights_list):
+def stitch_weights(mesh, patches, patch_weights_list, *, paper=False):
     full_weights_sum = np.zeros(len(mesh.vertices))
-    full_weights_count = np.zeros(len(mesh.vertices)) + 1e-6
+    full_weights_count = np.full(len(mesh.vertices), 0.0 if paper else 1e-6)
 
     for i, patch in enumerate(patches):
         orig_idx = patch['original_indices']
@@ -113,5 +135,6 @@ def stitch_weights(mesh, patches, patch_weights_list):
         np.add.at(full_weights_sum, orig_idx, weights * confidences)
         np.add.at(full_weights_count, orig_idx, confidences)
 
-    final_weights = full_weights_sum / full_weights_count
+    final_weights = np.divide(full_weights_sum, full_weights_count, out=np.zeros_like(full_weights_sum),
+                              where=full_weights_count > 0)
     return np.clip(final_weights, 0, 1)
